@@ -1,0 +1,80 @@
+name: Build Android APK
+
+on:
+  push:
+    branches: [ "**" ]
+  workflow_dispatch:
+
+jobs:
+  build:
+    name: Build Debug APK
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+
+      - name: Set up Gradle 8.5
+        uses: gradle/actions/setup-gradle@v3
+        with:
+          gradle-version: '8.5'
+
+      - name: Build APK with Gradle
+        run: |
+          set -e
+          echo "Current working directory: $(pwd)"
+          
+          # ১. যদি রিপোজিটরিতে কোনো ZIP ফাইল থাকে, স্বয়ংক্রিয়ভাবে আনজিপ হবে
+          if compgen -G "*.zip" > /dev/null; then
+            echo "==> ZIP file found! Auto-extracting project..."
+            unzip -o *.zip
+          fi
+          if compgen -G "*/*.zip" > /dev/null; then
+            echo "==> ZIP file found in subfolder! Auto-extracting..."
+            unzip -o */*.zip
+          fi
+
+          # ২. স্বয়ংক্রিয়ভাবে প্রজেক্ট রুট ফোল্ডার চিহ্নিত করা
+          if [ ! -f "settings.gradle" ] || [ ! -d "app" ]; then
+            TARGET_DIR=$(find . -maxdepth 3 -name "settings.gradle" -exec dirname {} \; | head -n 1)
+            if [ -n "$TARGET_DIR" ] && [ -d "$TARGET_DIR/app" ]; then
+              echo "==> Navigating to project root at: $TARGET_DIR"
+              cd "$TARGET_DIR"
+            fi
+          fi
+
+          echo "==> Directory listing:"
+          ls -la
+
+          # কোড যাচাই
+          if [ ! -d "app" ]; then
+            echo "❌ CRITICAL ERROR: 'app' ফোল্ডার মিসিং!"
+            exit 1
+          fi
+
+          # ৩. সরাসরি APK বিল্ড
+          if [ -f "./gradlew" ]; then
+            chmod +x ./gradlew
+            ./gradlew assembleDebug --stacktrace --no-daemon
+          else
+            gradle assembleDebug --stacktrace --no-daemon
+          fi
+
+          echo "==> APK build completed successfully!"
+          find . -name "*.apk" -ls
+
+      - name: Upload APK Artifact
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: udc-sms-assistant-debug-apk
+          path: |
+            **/build/outputs/apk/debug/*.apk
+            **/build/outputs/apk/**/*.apk
+          retention-days: 14
